@@ -49,29 +49,7 @@
 
 new(StreamInfo) ->
     Stream = open(StreamInfo),
-    case read(Stream) of
-        {next_chunk, end_of_stream} -> {error, not_a_crashdump};
-        {next_chunk, <<$=:8, TagAndRest/binary>>} ->
-            {Tag, Id, Rest, N1} = tag(Stream, TagAndRest, 1),
-            case Tag of
-                ?erl_crash_dump ->
-                    Tab = create_index(),
-                    insert_index(Tab, stream, ?val(stream, StreamInfo), 0),
-                    insert_index(Tab, Tag, Id, N1+1),
-                    indexify(Tab, Stream, Rest, N1),
-                    check_if_truncated(Tab),
-                    close_stream(Stream),
-                    {ok, ?index(Tab)};
-                _Other ->
-                    % not an erlang crashdump
-                    close_stream(Stream),
-                    {error, not_a_crashdump}
-            end;
-        {next_chunk, <<"<Erlang crash dump>", _Rest/binary>>} -> 
-            %% old version - no longer supported
-            close_stream(Stream),
-            {error, version_not_supported}
-    end.
+    edump_line_parser:start(Stream, edump_index_parser).
 
 %% @doc
 %% Saves the index to disk.

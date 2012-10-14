@@ -11,5 +11,6 @@
   {env, []},
   {modules, [edump_index,
              edump_viewer,
-             edump_indexed_parser]}
+             edump_index_parser,
+             edump_line_parser]}
  ]}.
