@@ -67,7 +67,7 @@ build_segment_table(Segment, Index, Options) ->
 build_segment_table(_Tab, end_of_segment, _Idx, _SortPos, _Opt) ->
     ok;
 build_segment_table(Tab, Segment, Idx, SortPos, Opt) ->
-    Record = parse_segment(full_tag(Segment), Idx, Opt),
+    Record = parse_segment(Idx, full_tag(Segment), Opt),
     SortKey = {element(SortPos, Record), element(2, Record)},
     ets:insert(Tab, {Record, SortKey}),
     build_segment_table(Tab, next_segment(Segment, Idx), Idx, SortPos, Opt).
@@ -94,18 +94,18 @@ next_segment(Segment, {edump_index, TabId}) when is_atom(Segment) ->
         _ -> end_of_segment
     end.
 
-parse_segment(Segment, Index, Options) ->
-    Opts = {stream,
-              {behaviour, edump_indexed_parser,
-               [{index, Index}, {tag_name, Segment}]}},
-    Stream = open_stream([Opts] ++ Options),
+parse_segment(Index, Segment, Options) ->
+    Stream = open_stream(Index, Segment, Options),
     SegmentParser = segment_parser(Segment),
     case get_chunk(Stream) of
         eof ->
+            close_stream(Stream),
             throw({error, data_not_available});
         Chunk ->
             State0 = SegmentParser(Segment, undefined),
-            parse_segment(Stream, SegmentParser, Chunk, State0)
+            State1 = parse_segment(Stream, SegmentParser, Chunk, State0),
+            close_stream(Stream),
+            State1
     end.
 
 parse_segment(_Stream, _Parser, eof, State0) ->
@@ -120,7 +120,7 @@ parse_segment(Stream, Parser, Chunk, State0) ->
                     State1 = Parser(Stream, Parser, Incomplete, State0),
                     parse_segment(Stream, Parser, eof, State1);
                 More ->
-                    parse_segment(Stream, Parser, <<More, Chunk>>, State0)
+                    parse_segment(Stream, Parser, <<More/binary, Chunk/binary>>, State0)
             end;
         [Line, Rest] ->
             State1 = Parser(split_line(Line), State0),
@@ -194,9 +194,16 @@ split_line(Line) ->
 %% raw file processing oriented helpers
 %%--------------------------------------------------------------------
 
-open_stream(StreamOpts) ->
-    {ok, Stream} = gen_stream:start_link(StreamOpts),
+open_stream(Index, Segment, Options) ->
+    Opts = [{stream,
+              {behaviour, edump_indexed_parser,
+               [{index, Index}, {tag_name, Segment}]}}],
+    {ok, Stream} = gen_stream:start_link(Opts ++ Options),
     Stream.
+
+close_stream(Stream) ->
+    gen_stream:stop(Stream),
+    ok.
 
 read(Stream) ->
     gen_stream:next_chunk(Stream).
